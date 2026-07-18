@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>FaceScan AI</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#06060a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="FaceScan" />
+<meta name="format-detection" content="telephone=no" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ HOME ============ -->
+  <section id="screen-home" class="screen active" data-screen="home">
+    <div class="safe-top"></div>
+    <header class="home-header">
+      <div class="brand-mark">
+        <svg viewBox="0 0 100 100" width="56" height="56">
+          <circle cx="50" cy="50" r="42" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" stroke-dasharray="205 264" transform="rotate(-90 50 50)"/>
+          <defs>
+            <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ff453a"/>
+              <stop offset="40%" stop-color="#ff9f0a"/>
+              <stop offset="70%" stop-color="#ffd60a"/>
+              <stop offset="100%" stop-color="#34c759"/>
+            </linearGradient>
+          </defs>
+          <circle cx="50" cy="38" r="14" fill="none" stroke="rgba(235,240,255,0.9)" stroke-width="3"/>
+          <path d="M32 66 Q50 80 68 66" fill="none" stroke="rgba(235,240,255,0.9)" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h1>FaceScan AI</h1>
+      <p class="tagline">Private, on-device facial geometry insights</p>
+    </header>
+
+    <div class="home-actions">
+      <button class="btn btn-primary btn-large" data-nav="scan-intro">
+        <span class="btn-icon">✦</span> Start Scan
+      </button>
+      <button class="btn btn-glass btn-large" data-nav="history">
+        <span class="btn-icon">📈</span> History
+      </button>
+      <button class="btn btn-glass btn-large" data-nav="settings">
+        <span class="btn-icon">⚙︎</span> Settings
+      </button>
+    </div>
+
+    <div class="privacy-badge">🔒 Everything stays on your device.</div>
+    <div class="safe-bottom"></div>
+  </section>
+
+  <!-- ============ SCAN INTRO ============ -->
+  <section id="screen-scan-intro" class="screen" data-screen="scan-intro">
+    <div class="safe-top"></div>
+    <div class="topbar">
+      <button class="btn-back" data-nav="home">‹ Back</button>
+    </div>
+    <div class="intro-content">
+      <h2>7 quick poses</h2>
+      <p class="intro-sub">Follow each prompt. Poses complete automatically once detected.</p>
+      <ol class="pose-list">
+        <li><span class="pose-num">1</span> Look Straight</li>
+        <li><span class="pose-num">2</span> Turn Left</li>
+        <li><span class="pose-num">3</span> Turn Right</li>
+        <li><span class="pose-num">4</span> Look Up</li>
+        <li><span class="pose-num">5</span> Look Down</li>
+        <li><span class="pose-num">6</span> Smile</li>
+        <li><span class="pose-num">7</span> Neutral Expression</li>
+      </ol>
+      <div class="intro-tip">💡 Use good, even lighting and hold the phone at eye level.</div>
+    </div>
+    <button class="btn btn-primary btn-large" id="begin-scan-btn">Begin Scan</button>
+    <div class="privacy-badge small">🔒 Nothing is uploaded, ever.</div>
+    <div class="safe-bottom"></div>
+  </section>
+
+  <!-- ============ SCAN ============ -->
+  <section id="screen-scan" class="screen" data-screen="scan">
+    <div class="safe-top"></div>
+    <div class="scan-topbar">
+      <button class="btn-back ghost" data-nav="home">✕</button>
+      <div class="step-progress">
+        <div class="step-dots" id="step-dots"></div>
+        <span class="step-label" id="step-label">Step 1 of 7</span>
+      </div>
+      <div class="topbar-spacer"></div>
+    </div>
+
+    <div class="camera-wrap">
+      <video id="camera-feed" autoplay playsinline muted></video>
+      <canvas id="overlay-canvas"></canvas>
+      <div class="face-guide-ring" id="face-guide-ring"></div>
+      <div class="pose-check-anim" id="pose-check">✓</div>
+    </div>
+
+    <div class="pose-instruction">
+      <div class="pose-icon" id="pose-icon">👀</div>
+      <h2 id="pose-title">Look Straight</h2>
+      <p id="pose-sub">Center your face in the frame</p>
+    </div>
+    <div class="safe-bottom"></div>
+  </section>
+
+  <!-- ============ CAMERA PERMISSION / ERROR ============ -->
+  <section id="screen-camera-error" class="screen" data-screen="camera-error">
+    <div class="safe-top"></div>
+    <div class="error-content">
+      <div class="error-icon">📷</div>
+      <h2>Camera access needed</h2>
+      <p id="camera-error-message">FaceScan AI needs camera access to run an on-device scan. Nothing is ever recorded or uploaded.</p>
+      <button class="btn btn-primary btn-large" id="camera-retry-btn">Try Again</button>
+      <button class="btn btn-glass btn-large" data-nav="home">Cancel</button>
+    </div>
+    <div class="safe-bottom"></div>
+  </section>
+
+  <!-- ============ ANALYSIS (loading) ============ -->
+  <section id="screen-analysis" class="screen" data-screen="analysis">
+    <div class="safe-top"></div>
+    <div class="analysis-center">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 200 200" class="progress-ring">
+          <circle class="ring-track" cx="100" cy="100" r="88"/>
+          <circle class="ring-fill" id="ring-fill" cx="100" cy="100" r="88"/>
+        </svg>
+        <div class="ring-percent" id="ring-percent">0%</div>
+      </div>
+      <p class="analysis-message" id="analysis-message">Building facial mesh...</p>
+    </div>
+    <div class="safe-bottom"></div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="screen-results" class="screen" data-screen="results">
+    <div class="safe-top"></div>
+    <div class="topbar">
+      <button class="btn-back" id="results-back-btn">‹ Back</button>
+      <button class="btn-icon-only" id="results-delete-btn" title="Delete scan" style="display:none">🗑</button>
+    </div>
+    <div class="scroll-area" id="results-scroll">
+      <div class="score-hero">
+        <div class="score-ring-wrap">
+          <svg viewBox="0 0 160 160" class="score-ring">
+            <circle class="ring-track" cx="80" cy="80" r="70"/>
+            <circle class="ring-fill" id="score-ring-fill" cx="80" cy="80" r="70"/>
+          </svg>
+          <div class="score-value" id="score-value">8.4</div>
+        </div>
+        <p class="score-label">Estimated Profile Score</p>
+        <p class="score-disclaimer">App-generated estimate based on facial geometry — not an objective measure of attractiveness.</p>
+        <p class="score-date" id="score-date"></p>
+      </div>
+
+      <h3 class="section-title">Detected Features</h3>
+      <div class="feature-grid" id="feature-grid"></div>
+
+      <h3 class="section-title">Suggestions</h3>
+      <div class="suggestion-list" id="suggestion-list"></div>
+
+      <div class="results-actions">
+        <button class="btn btn-primary btn-large" id="results-done-btn">Done</button>
+      </div>
+      <div class="safe-bottom"></div>
+    </div>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section id="screen-history" class="screen" data-screen="history">
+    <div class="safe-top"></div>
+    <div class="topbar">
+      <button class="btn-back" data-nav="home">‹ Back</button>
+      <h2 class="topbar-title">History</h2>
+      <button class="btn-icon-only" id="history-clear-btn" title="Clear all">🗑</button>
+    </div>
+    <div class="scroll-area">
+      <div class="history-stats" id="history-stats"></div>
+      <div class="chart-card">
+        <canvas id="history-chart" height="180"></canvas>
+      </div>
+      <div id="history-empty" class="empty-state" style="display:none">
+        <div class="empty-icon">📊</div>
+        <p>No scans yet. Run your first scan to start tracking trends.</p>
+        <button class="btn btn-primary btn-large" data-nav="scan-intro">Start Scan</button>
+      </div>
+      <div class="history-list" id="history-list"></div>
+      <div class="safe-bottom"></div>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="screen-settings" class="screen" data-screen="settings">
+    <div class="safe-top"></div>
+    <div class="topbar">
+      <button class="btn-back" data-nav="home">‹ Back</button>
+      <h2 class="topbar-title">Settings</h2>
+      <div class="topbar-spacer"></div>
+    </div>
+    <div class="scroll-area">
+      <div class="settings-group">
+        <div class="settings-row">
+          <span>Haptic feedback</span>
+          <label class="switch">
+            <input type="checkbox" id="setting-haptics" checked>
+            <span class="switch-track"></span>
+          </label>
+        </div>
+        <div class="settings-row">
+          <span>Invert left / right turn detection</span>
+          <label class="switch">
+            <input type="checkbox" id="setting-invert-yaw">
+            <span class="switch-track"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <button class="settings-row action" id="clear-history-btn">
+          <span>Clear all scan history</span> <span class="chev">›</span>
+        </button>
+      </div>
+
+      <div class="settings-group about-card">
+        <h3>About FaceScan AI</h3>
+        <p>FaceScan AI analyzes facial geometry entirely on your device using MediaPipe's on-device face landmark detection. No image, video, or measurement ever leaves your phone — there is no server, no account, and no cloud storage.</p>
+        <p class="disclaimer-strong">Results are app-generated estimates derived from geometric measurements. They are not scientific, medical, or objective assessments of attractiveness.</p>
+        <p class="version-tag">Version 1.0.0</p>
+      </div>
+      <div class="safe-bottom"></div>
+    </div>
+  </section>
+
+  <!-- Confirm dialog -->
+  <div class="modal-overlay" id="confirm-overlay">
+    <div class="modal-card">
+      <h3 id="confirm-title">Are you sure?</h3>
+      <p id="confirm-message">This action cannot be undone.</p>
+      <div class="modal-actions">
+        <button class="btn btn-glass" id="confirm-cancel">Cancel</button>
+        <button class="btn btn-danger" id="confirm-ok">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
