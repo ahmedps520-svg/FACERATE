@@ -29,8 +29,8 @@ export async function renderHistoryChart(canvas, scans) {
 
   const ctx = canvas.getContext('2d');
   const gradient = ctx.createLinearGradient(0, 0, 0, 180);
-  gradient.addColorStop(0, 'rgba(255, 159, 10, 0.35)');
-  gradient.addColorStop(1, 'rgba(255, 159, 10, 0)');
+  gradient.addColorStop(0, 'rgba(255, 45, 58, 0.35)');
+  gradient.addColorStop(1, 'rgba(255, 45, 58, 0)');
 
   chartInstance = new window.Chart(ctx, {
     type: 'line',
@@ -39,12 +39,12 @@ export async function renderHistoryChart(canvas, scans) {
       datasets: [
         {
           data: scores,
-          borderColor: '#ff9f0a',
+          borderColor: '#ff2d3a',
           backgroundColor: gradient,
           fill: true,
           tension: 0.4,
           pointRadius: scores.map((_, i) => (i === scores.length - 1 ? 4 : 0)),
-          pointBackgroundColor: '#ff9f0a',
+          pointBackgroundColor: '#ff2d3a',
           pointHoverRadius: 5,
           borderWidth: 2.5,
         },

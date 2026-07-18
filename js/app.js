@@ -1,4 +1,4 @@
-import { PoseScanner, POSES } from './camera.js';
+import { PoseScanner, POSES, analyzePhotoFile } from './camera.js';
 import { runFullAnalysis, FEATURE_LABELS } from './analysis.js';
 import { saveScan, getAllScans, deleteScan, clearAllScans } from './db.js';
 import { renderHistoryChart } from './charts.js';
@@ -173,9 +173,62 @@ function updatePoseUI(pose) {
   document.getElementById('face-guide-ring').classList.remove('locked');
 }
 
+// ---------------- photo upload ----------------
+
+document.getElementById('upload-photo-btn').addEventListener('click', () => {
+  document.getElementById('photo-input').click();
+});
+
+document.getElementById('photo-input').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  // Start on-device processing while the analysis animation plays.
+  const photoPromise = analyzePhotoFile(file);
+  runAnalysisRing(async () => {
+    let photo;
+    try {
+      photo = await photoPromise;
+    } catch (err) {
+      console.error(err);
+      showToast('Could not analyze that photo. Check your connection and try again.');
+      showScreen('home');
+      return;
+    }
+    if (!photo) {
+      showToast('No face detected in that photo — try a clear, front-facing shot.');
+      showScreen('home');
+      return;
+    }
+    const poseSamples = {
+      straight: { yawDev: photo.metrics.yaw * 100, pitchDev: 0 },
+    };
+    const result = runFullAnalysis({
+      referenceLandmarks: photo.landmarks,
+      w: photo.w,
+      h: photo.h,
+      lightingImageData: photo.lightingImageData,
+      poseSamples,
+    });
+    await presentNewScan({
+      date: new Date().toISOString(),
+      overallScore: result.overallScore,
+      features: result.features,
+      suggestions: result.suggestions,
+      thumbnail: photo.thumbnail,
+      scanType: 'photo',
+    });
+  });
+});
+
 // ---------------- analysis loading ----------------
 
 function runAnalysisFlow(captures, w, h) {
+  runAnalysisRing(() => finishAnalysis(captures, w, h));
+}
+
+function runAnalysisRing(onComplete) {
   showScreen('analysis');
   const ringFill = document.getElementById('ring-fill');
   const percentEl = document.getElementById('ring-percent');
@@ -219,13 +272,13 @@ function runAnalysisFlow(captures, w, h) {
       requestAnimationFrame(tick);
     } else {
       clearInterval(msgInterval);
-      finishAnalysis(captures, w, h);
+      onComplete();
     }
   }
   requestAnimationFrame(tick);
 }
 
-function finishAnalysis(captures, w, h) {
+async function finishAnalysis(captures, w, h) {
   const straight = captures.straight;
   const neutral = captures.neutral;
 
@@ -249,22 +302,38 @@ function finishAnalysis(captures, w, h) {
     poseSamples,
   });
 
-  pendingScanRecord = {
+  await presentNewScan({
     date: new Date().toISOString(),
     overallScore: result.overallScore,
     features: result.features,
     suggestions: result.suggestions,
     thumbnail: straight.thumbnail,
-  };
+    scanType: 'camera',
+  });
+}
 
+async function presentNewScan(record) {
+  // score delta vs the most recent saved scan, persisted with the record
+  try {
+    const prev = await getAllScans();
+    if (prev.length > 0) {
+      const last = prev[prev.length - 1];
+      record.scoreDelta = Math.round((record.overallScore - last.overallScore) * 10) / 10;
+    }
+  } catch (e) { /* delta is optional */ }
+
+  pendingScanRecord = record;
   resultsContext = 'new';
-  renderResults(pendingScanRecord);
+  renderResults(record);
   showScreen('results');
 }
 
 // ---------------- results ----------------
 
+let currentRenderedScan = null;
+
 function renderResults(scan) {
+  currentRenderedScan = scan;
   const circumference = 2 * Math.PI * 70;
   const fill = document.getElementById('score-ring-fill');
   fill.style.strokeDasharray = `${circumference}`;
@@ -279,13 +348,34 @@ function renderResults(scan) {
     dateStyle: 'medium', timeStyle: 'short',
   });
 
+  const deltaEl = document.getElementById('score-delta');
+  deltaEl.className = 'score-delta';
+  if (typeof scan.scoreDelta === 'number') {
+    if (scan.scoreDelta > 0) {
+      deltaEl.classList.add('up');
+      deltaEl.textContent = `▲ +${scan.scoreDelta.toFixed(1)} vs last scan`;
+    } else if (scan.scoreDelta < 0) {
+      deltaEl.classList.add('down');
+      deltaEl.textContent = `▼ ${scan.scoreDelta.toFixed(1)} vs last scan`;
+    } else {
+      deltaEl.classList.add('same');
+      deltaEl.textContent = '— same as last scan';
+    }
+  } else {
+    deltaEl.textContent = '';
+  }
+
+  document.getElementById('scan-type-badge').textContent =
+    scan.scanType === 'photo' ? '🖼️ Photo Analysis' : '🤳 Camera Scan';
+
   const grid = document.getElementById('feature-grid');
   grid.innerHTML = '';
-  FEATURE_ORDER.forEach((key) => {
+  FEATURE_ORDER.forEach((key, i) => {
     const f = scan.features[key];
     if (!f) return;
     const card = document.createElement('div');
     card.className = 'feature-card';
+    card.style.setProperty('--i', i);
     card.innerHTML = `
       <div class="fname">${FEATURE_LABELS[key]}</div>
       <div class="fvalue">${f.label}</div>
@@ -313,6 +403,120 @@ function renderResults(scan) {
   document.getElementById('results-delete-btn').style.display = resultsContext === 'history' ? 'flex' : 'none';
   document.getElementById('results-scroll').scrollTop = 0;
 }
+
+// Render the current report to a PNG entirely on-device and trigger a local
+// save — nothing is uploaded.
+document.getElementById('export-report-btn').addEventListener('click', () => {
+  const scan = currentRenderedScan;
+  if (!scan) return;
+
+  const W = 900;
+  const rowH = 46;
+  const featureKeys = FEATURE_ORDER.filter((k) => scan.features[k]);
+  const headerH = 360;
+  const featuresH = Math.ceil(featureKeys.length / 2) * rowH + 70;
+  const suggH = scan.suggestions.length * 78 + 70;
+  const H = headerH + featuresH + suggH + 120;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#1c060a');
+  bg.addColorStop(0.4, '#0a0203');
+  bg.addColorStop(1, '#050002');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ff2d3a';
+  ctx.font = '700 44px -apple-system, system-ui, sans-serif';
+  ctx.fillText('FaceScan AI', W / 2, 80);
+  ctx.fillStyle = 'rgba(245,235,236,0.5)';
+  ctx.font = '400 22px -apple-system, system-ui, sans-serif';
+  ctx.fillText(new Date(scan.date).toLocaleString(), W / 2, 116);
+
+  // score ring
+  const cx = W / 2, cy = 230, r = 85;
+  ctx.lineWidth = 14;
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+  const pct = scan.overallScore / 10;
+  ctx.strokeStyle = '#ff2d3a';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.font = '800 64px -apple-system, system-ui, sans-serif';
+  ctx.fillText(scan.overallScore.toFixed(1), cx, cy + 22);
+
+  // features (two columns)
+  let y = headerH + 40;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ff5560';
+  ctx.font = '700 26px -apple-system, system-ui, sans-serif';
+  ctx.fillText('Detected Features', 60, y);
+  y += 34;
+  ctx.font = '400 22px -apple-system, system-ui, sans-serif';
+  featureKeys.forEach((key, i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = col === 0 ? 60 : W / 2 + 20;
+    const fy = y + row * rowH;
+    const f = scan.features[key];
+    ctx.fillStyle = 'rgba(245,235,236,0.5)';
+    ctx.fillText(FEATURE_LABELS[key], x, fy);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(String(f.label), x, fy + 24);
+  });
+  y += Math.ceil(featureKeys.length / 2) * rowH + 40;
+
+  // suggestions
+  ctx.fillStyle = '#ff5560';
+  ctx.font = '700 26px -apple-system, system-ui, sans-serif';
+  ctx.fillText('Suggestions', 60, y);
+  y += 40;
+  scan.suggestions.forEach((s) => {
+    ctx.fillStyle = '#ff5560';
+    ctx.font = '700 20px -apple-system, system-ui, sans-serif';
+    ctx.fillText(`${s.icon} ${s.category.toUpperCase()}`, 60, y);
+    ctx.fillStyle = 'rgba(245,235,236,0.85)';
+    ctx.font = '400 21px -apple-system, system-ui, sans-serif';
+    // simple two-line wrap
+    const words = s.text.split(' ');
+    let line = '';
+    let ly = y + 28;
+    for (const word of words) {
+      if (ctx.measureText(line + word).width > W - 120) {
+        ctx.fillText(line, 60, ly);
+        line = word + ' ';
+        ly += 26;
+      } else {
+        line += word + ' ';
+      }
+    }
+    ctx.fillText(line.trim(), 60, ly);
+    y = ly + 50;
+  });
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(245,235,236,0.35)';
+  ctx.font = '400 18px -apple-system, system-ui, sans-serif';
+  ctx.fillText('App-generated estimate — not an objective measure of attractiveness.', W / 2, H - 40);
+
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = `facescan-report-${new Date(scan.date).toISOString().slice(0, 10)}.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  showToast('Report image saved');
+});
 
 document.getElementById('results-back-btn').addEventListener('click', () => {
   showScreen(resultsContext === 'history' ? 'history' : 'home');
@@ -379,7 +583,7 @@ async function refreshHistoryScreen() {
       <img class="hthumb" src="${scan.thumbnail || ''}" alt="" />
       <div class="hinfo">
         <div class="hdate">${dateStr}</div>
-        <div class="hmeta">${Object.keys(scan.features).length} features analyzed</div>
+        <div class="hmeta">${scan.scanType === 'photo' ? '🖼️ Photo' : '🤳 Camera'} · ${Object.keys(scan.features).length} features</div>
       </div>
       <div class="hscore">${scan.overallScore.toFixed(1)}</div>
     `;

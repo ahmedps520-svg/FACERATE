@@ -25,6 +25,82 @@ export const POSES = [
   { key: 'neutral', title: 'Neutral Expression', sub: 'Relax your face and look straight ahead', icon: '😐' },
 ];
 
+let imageLandmarkerPromise = null;
+
+async function getImageLandmarker() {
+  if (imageLandmarkerPromise) return imageLandmarkerPromise;
+  imageLandmarkerPromise = (async () => {
+    const vision = await import(/* webpackIgnore: true */ VISION_BUNDLE_URL);
+    const { FaceLandmarker, FilesetResolver } = vision;
+    const filesetResolver = await FilesetResolver.forVisionTasks(WASM_BASE_URL);
+    return FaceLandmarker.createFromOptions(filesetResolver, {
+      baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+      runningMode: 'IMAGE',
+      numFaces: 1,
+      outputFaceBlendshapes: true,
+      outputFacialTransformationMatrixes: false,
+    });
+  })();
+  imageLandmarkerPromise.catch(() => { imageLandmarkerPromise = null; });
+  return imageLandmarkerPromise;
+}
+
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => resolve({ img, url });
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not read that image file.'));
+    };
+    img.src = url;
+  });
+}
+
+// Analyze a single uploaded photo entirely on-device. The image is drawn to a
+// local canvas, landmarked, then discarded — only derived numbers and a small
+// thumbnail survive.
+export async function analyzePhotoFile(file) {
+  const landmarker = await getImageLandmarker();
+  const { img, url } = await loadImageFromFile(file);
+  try {
+    // downscale to a working canvas (keeps detection fast and memory low)
+    const maxDim = 960;
+    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.round(img.naturalWidth * scale);
+    const h = Math.round(img.naturalHeight * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const result = landmarker.detect(canvas);
+    if (!result.faceLandmarks || result.faceLandmarks.length === 0) {
+      return null;
+    }
+    const landmarks = result.faceLandmarks[0].map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    const metrics = computeMetrics(landmarks, w, h, result);
+
+    // small thumbnail + lighting sample
+    const thumbScale = Math.min(1, 240 / w);
+    const tw = Math.round(w * thumbScale);
+    const th = Math.round(h * thumbScale);
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = tw;
+    thumbCanvas.height = th;
+    const tctx = thumbCanvas.getContext('2d');
+    tctx.drawImage(canvas, 0, 0, tw, th);
+    const thumbnail = thumbCanvas.toDataURL('image/jpeg', 0.7);
+    const lightingImageData = tctx.getImageData(0, 0, tw, th);
+
+    return { landmarks, metrics, w, h, thumbnail, lightingImageData };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function getBlendshape(result, name) {
   const list = result.faceBlendshapes && result.faceBlendshapes[0] && result.faceBlendshapes[0].categories;
   if (!list) return 0;

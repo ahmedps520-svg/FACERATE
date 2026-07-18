@@ -7,7 +7,7 @@
 
 <!-- PWA -->
 <link rel="manifest" href="manifest.json" />
-<meta name="theme-color" content="#06060a" />
+<meta name="theme-color" content="#0a0203" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -30,10 +30,10 @@
           <circle cx="50" cy="50" r="42" fill="none" stroke="url(#ringGrad)" stroke-width="6" stroke-linecap="round" stroke-dasharray="205 264" transform="rotate(-90 50 50)"/>
           <defs>
             <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#ff453a"/>
-              <stop offset="40%" stop-color="#ff9f0a"/>
-              <stop offset="70%" stop-color="#ffd60a"/>
-              <stop offset="100%" stop-color="#34c759"/>
+              <stop offset="0%" stop-color="#ff6e64"/>
+              <stop offset="40%" stop-color="#ff2d3a"/>
+              <stop offset="75%" stop-color="#dc0a1e"/>
+              <stop offset="100%" stop-color="#820014"/>
             </linearGradient>
           </defs>
           <circle cx="50" cy="38" r="14" fill="none" stroke="rgba(235,240,255,0.9)" stroke-width="3"/>
@@ -48,6 +48,10 @@
       <button class="btn btn-primary btn-large" data-nav="scan-intro">
         <span class="btn-icon">✦</span> Start Scan
       </button>
+      <button class="btn btn-glass btn-large" id="upload-photo-btn">
+        <span class="btn-icon">🖼️</span> Upload Photo
+      </button>
+      <input type="file" id="photo-input" accept="image/*" style="display:none" />
       <button class="btn btn-glass btn-large" data-nav="history">
         <span class="btn-icon">📈</span> History
       </button>
@@ -158,6 +162,8 @@
           <div class="score-value" id="score-value">8.4</div>
         </div>
         <p class="score-label">Estimated Profile Score</p>
+        <p class="score-delta" id="score-delta"></p>
+        <span class="scan-type-badge" id="scan-type-badge">Camera Scan</span>
         <p class="score-disclaimer">App-generated estimate based on facial geometry — not an objective measure of attractiveness.</p>
         <p class="score-date" id="score-date"></p>
       </div>
@@ -169,6 +175,9 @@
       <div class="suggestion-list" id="suggestion-list"></div>
 
       <div class="results-actions">
+        <button class="btn btn-glass btn-large" id="export-report-btn">
+          <span class="btn-icon">💾</span> Save Report Image
+        </button>
         <button class="btn btn-primary btn-large" id="results-done-btn">Done</button>
       </div>
       <div class="safe-bottom"></div>

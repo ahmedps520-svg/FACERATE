@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'facescan-shell-v1';
+const SHELL_CACHE = 'facescan-shell-v2';
 const RUNTIME_CACHE = 'facescan-runtime-v1';
 
 const SHELL_ASSETS = [
